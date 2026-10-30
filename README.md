@@ -1,4 +1,4 @@
-﻿# Phishing Analysis & Response Lab
+﻿# Phishing Triage Pipeline
 
 An end-to-end phishing **detection and response pipeline** — from a controlled simulated campaign through automated triage, IOC enrichment, SOC case management, and detection-as-code.
 
@@ -41,3 +41,4 @@ _(samples, malware, secrets, and output are kept local and git-ignored)_
 
 ## Author
 **Alex Tchewedjou** — building toward SOC Analyst / Junior Cybersecurity Analyst roles in Canada.
+
