@@ -1,0 +1,211 @@
+# Sigma detection rules for phishing email triage
+# Author: Alex Tchewedjou
+# Derived from analysis of a 22-sample real-world phishing corpus (see docs/phishing-case-studies.md).
+#
+# Field model: these rules assume a mail-telemetry source whose events expose the
+# fields below (as produced by analyzer/enrich_phish.py and available, under other
+# names, in Microsoft Defender EmailEvents / a mail gateway):
+#   sender_display_name, sender_from_domain, reply_to_domain,
+#   subject, spf, dkim, dmarc, attachment_name, attachment_mime,
+#   body_text_length, url_tld
+# Adapt the field names to your SIEM's schema when converting (e.g. with pySigma).
+# Multiple rules are separated with '---' (multi-document YAML).
+---
+title: Email Failing SPF and DMARC (Likely Spoofing)
+id: 4e1f0a10-7b21-4a0e-9b2a-0d9f7a1c0001
+status: experimental
+description: >
+  Inbound email whose SPF does not pass and whose DMARC fails. Strong indicator of
+  domain spoofing — the message is not legitimately from the domain it claims.
+references:
+  - https://dmarc.org/overview/
+author: Alex Tchewedjou
+date: 2026-11-18
+tags:
+  - attack.initial-access
+  - attack.t1566
+logsource:
+  category: email
+detection:
+  spf_bad:
+    spf:
+      - fail
+      - softfail
+  dmarc_fail:
+    dmarc: fail
+  condition: spf_bad and dmarc_fail
+falsepositives:
+  - Legitimately forwarded mail (forwarding breaks SPF)
+  - Senders with misconfigured SPF/DMARC records
+level: high
+---
+title: Authority Impersonation from Free Webmail (BEC)
+id: 4e1f0a10-7b21-4a0e-9b2a-0d9f7a1c0002
+status: experimental
+description: >
+  A free-webmail sender using an authoritative or official-sounding display name
+  (bank, government agency, executive title). Classic Business Email Compromise /
+  advance-fee pattern — authentication may PASS because the account is genuine and
+  only the display name is deceptive.
+references:
+  - https://attack.mitre.org/techniques/T1656/
+author: Alex Tchewedjou
+date: 2026-11-18
+tags:
+  - attack.initial-access
+  - attack.t1566
+  - attack.t1598
+  - attack.t1656
+logsource:
+  category: email
+detection:
+  freemail:
+    sender_from_domain:
+      - gmail.com
+      - yahoo.com
+      - outlook.com
+      - hotmail.com
+      - icloud.com
+      - aol.com
+  authority_name:
+    sender_display_name|contains:
+      - fbi
+      - cia
+      - irs
+      - federal bureau
+      - bank of
+      - imf
+      - monetary fund
+      - reserve bank
+      - treasury
+      - united nations
+      - interpol
+      - embassy
+      - director
+      - ceo
+      - attorney
+      - lottery
+      - inheritance
+      - beneficiary
+      - settlement
+  condition: freemail and authority_name
+falsepositives:
+  - Genuine individuals whose name or signature contains one of these words
+level: high
+---
+title: Reply-To Redirects to Personal Webmail (Reply Hijack)
+id: 4e1f0a10-7b21-4a0e-9b2a-0d9f7a1c0003
+status: experimental
+description: >
+  The From domain is NOT free webmail, but the Reply-To points to a personal
+  free-webmail account. Replies are silently redirected to an attacker-controlled
+  mailbox — common in BEC and advance-fee fraud.
+references:
+  - https://attack.mitre.org/techniques/T1598/
+author: Alex Tchewedjou
+date: 2026-11-18
+tags:
+  - attack.initial-access
+  - attack.t1566
+  - attack.t1598
+logsource:
+  category: email
+detection:
+  reply_to_freemail:
+    reply_to_domain:
+      - gmail.com
+      - yahoo.com
+      - outlook.com
+      - hotmail.com
+      - icloud.com
+      - aol.com
+  sender_is_freemail:
+    sender_from_domain:
+      - gmail.com
+      - yahoo.com
+      - outlook.com
+      - hotmail.com
+      - icloud.com
+      - aol.com
+  condition: reply_to_freemail and not sender_is_freemail
+falsepositives:
+  - Small businesses that legitimately use a personal address for replies
+level: medium
+---
+title: Image-Only Email with Attachment from Free Webmail (Callback Phishing)
+id: 4e1f0a10-7b21-4a0e-9b2a-0d9f7a1c0004
+status: experimental
+description: >
+  A free-webmail sender delivering an image attachment with little or no body text.
+  Characteristic of callback phishing (TOAD): the entire lure is rendered as an
+  image to evade text filters, with a phone number for the victim to call.
+references:
+  - https://attack.mitre.org/techniques/T1566/001/
+author: Alex Tchewedjou
+date: 2026-11-18
+tags:
+  - attack.initial-access
+  - attack.t1566.001
+  - attack.t1656
+logsource:
+  category: email
+detection:
+  freemail:
+    sender_from_domain:
+      - gmail.com
+      - yahoo.com
+      - outlook.com
+      - hotmail.com
+      - icloud.com
+      - aol.com
+  image_attachment:
+    attachment_mime:
+      - image/bmp
+      - image/png
+      - image/jpeg
+  minimal_body:
+    body_text_length|lte: 50
+  condition: freemail and image_attachment and minimal_body
+falsepositives:
+  - Genuine short messages that attach a single photo
+level: high
+---
+title: Link to Throwaway / Abused Top-Level Domain
+id: 4e1f0a10-7b21-4a0e-9b2a-0d9f7a1c0005
+status: experimental
+description: >
+  Email body links to a domain on a TLD disproportionately used for short-lived
+  malicious infrastructure. Fresh malicious domains frequently return "clean" from
+  reputation services, so the TLD pattern itself is a useful weak signal.
+references:
+  - https://www.spamhaus.org/statistics/tlds/
+author: Alex Tchewedjou
+date: 2026-11-18
+tags:
+  - attack.initial-access
+  - attack.t1566.002
+logsource:
+  category: email
+detection:
+  bad_tld:
+    url_tld:
+      - club
+      - top
+      - vip
+      - xyz
+      - my
+      - online
+      - click
+      - link
+      - buzz
+      - surf
+      - rest
+      - monster
+      - cfd
+      - sbs
+      - lol
+      - quest
+  condition: bad_tld
+falsepositives:
+  - Legitimate organizations that use a newer gTLD
+level: medium
